@@ -32,3 +32,34 @@ test_current_repo_without_remote() {
   git init -q "$bare"
   assert_eq "no remote" "$(cd "$bare" && ssf_current_repo)" ""
 }
+
+test_read_goals_missing_file() {
+  assert_eq "no goals.md" "$(ssf_read_goals)" ""
+}
+test_read_goals_sections() {
+  goals <<'EOF'
+wip-limit: 2
+
+## Active
+### IDoc import fixed
+- repos: Example/Work-Repo, example/second
+- done-when: customer imports without errors
+- resume: mapping for E1EDP01
+
+## Waiting
+### EDM skill released
+- repos: example/other
+- waiting-for: review by alice
+- follow-up: 2026-11-28
+
+## Notes
+### Not a goal
+- repos: example/ignored
+EOF
+  assert_eq "parsed goals" "$(ssf_read_goals)" \
+    "$(printf 'active\tIDoc import fixed\texample/work-repo,example/second\t\nwaiting\tEDM skill released\texample/other\t2026-11-28')"
+}
+test_read_goals_crlf_and_bom() {
+  printf '\357\273\277wip-limit: 2\r\n\r\n## Active\r\n### A goal\r\n- repos: O/R1\r\n' > "$HOME/.claude/focus/goals.md"
+  assert_eq "crlf + bom" "$(ssf_read_goals)" "$(printf 'active\tA goal\to/r1\t')"
+}

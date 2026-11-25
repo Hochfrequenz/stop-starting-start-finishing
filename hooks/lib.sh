@@ -39,3 +39,28 @@ ssf_current_repo() {
   url="$(git -C "${CLAUDE_PROJECT_DIR:-$PWD}" remote get-url origin 2>/dev/null)" || return 0
   ssf_normalize_remote "$url"
 }
+
+# Print the goals from goals.md, one per line:
+#   section<TAB>title<TAB>repos<TAB>follow-up
+# section is "active" or "waiting"; other sections are ignored. repos is
+# lowercase, comma-separated, without spaces. Tolerates CRLF and a UTF-8 BOM.
+ssf_read_goals() {
+  local f bom
+  f="$(ssf_dir)/goals.md"
+  [ -f "$f" ] || return 0
+  bom="$(printf '\357\273\277')"
+  LC_ALL=C awk -v bom="$bom" '
+    function flush() {
+      if (title != "" && (sec == "active" || sec == "waiting"))
+        printf "%s\t%s\t%s\t%s\n", sec, title, repos, fu
+      title = ""; repos = ""; fu = ""
+    }
+    { sub(/\r$/, "") }
+    NR == 1 && index($0, bom) == 1 { $0 = substr($0, 4) }
+    /^## / { flush(); sec = tolower($0); sub(/^## */, "", sec); sub(/ *$/, "", sec); next }
+    /^### / { flush(); title = $0; sub(/^### */, "", title); sub(/ *$/, "", title); next }
+    title != "" && /^- repos:/ { repos = substr($0, index($0, ":") + 1); gsub(/[ \t]/, "", repos); repos = tolower(repos); next }
+    title != "" && /^- follow-up:/ { fu = substr($0, index($0, ":") + 1); gsub(/[ \t]/, "", fu); next }
+    END { flush() }
+  ' "$f"
+}
