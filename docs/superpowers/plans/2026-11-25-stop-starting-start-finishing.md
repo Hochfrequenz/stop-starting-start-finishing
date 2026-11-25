@@ -21,6 +21,7 @@
   `Hochfrequenz/prozessorBackend<TAB>hf-kklein<TAB>9 years ago<TAB>Bedingungen: Referenz auf vorausgegan...<TAB>https://github.com/Hochfrequenz/prozessorBackend/issues/11`
 - In Git Bash, `${var:0:n}` slices **bytes**, not characters, so never truncate user text in bash. Issue titles are truncated by `gh` (`truncate 40`); goal titles are limited to 40 characters by the skill when it writes them.
 - `timeout` exists in Git Bash and Linux but not on stock macOS; code must work without it.
+- **Never combine `grep -i` with `-F`**: GNU grep 3.0 in Git Bash aborts (exit 134) and writes a `grep.exe.stackdump` into the current directory. Lowercase the input with `tr` instead.
 - `claude --plugin-dir <path>` loads a plugin from a directory for manual testing.
 
 ## File structure
@@ -204,6 +205,7 @@ Expected: `0 passed, 0 failed`, exit code 0.
 - [ ] **Step 7: Commit (with executable bits for non-Windows users)**
 
 ```bash
+chmod +x tests/run.sh tests/stub/gh
 git add .gitattributes .claude-plugin/plugin.json hooks/hooks.json tests/run.sh tests/stub/gh
 git update-index --chmod=+x tests/run.sh tests/stub/gh
 git commit -m "chore: scaffold plugin manifest, hooks config and test runner"
@@ -444,20 +446,34 @@ test_fetch_issues_gh_fails() {
   assert_eq "gh error" "$(ssf_fetch_issues)" ""
 }
 test_fetch_issues_timeout() {
-  command -v timeout >/dev/null 2>&1 || return 0
   GH_STUB_OUTPUT="late"
   GH_STUB_SLEEP=3
   SSF_GH_TIMEOUT=1
   assert_eq "gh too slow" "$(ssf_fetch_issues)" ""
 }
+test_fetch_issues_timeout_fallback() {
+  export SSF_FORCE_FALLBACK=1
+  GH_STUB_OUTPUT="late"
+  GH_STUB_SLEEP=3
+  SSF_GH_TIMEOUT=1
+  assert_eq "gh too slow without timeout(1)" "$(ssf_fetch_issues)" ""
+  unset SSF_FORCE_FALLBACK
+}
+test_with_timeout_fallback_passes_output() {
+  export SSF_FORCE_FALLBACK=1
+  assert_eq "fast command output kept" "$(ssf_with_timeout 2 printf 'ok')" "ok"
+  unset SSF_FORCE_FALLBACK
+}
 ```
 
-Note: when `gh` fails, partial output must be discarded, so `ssf_fetch_issues` buffers the output and prints it only on success.
+Notes:
+- When `gh` fails, partial output must be discarded, so `ssf_fetch_issues` buffers the output and prints it only on success.
+- The timeout tests take about 3 seconds each: the stub's `sleep` keeps the pipe open after the stub is killed.
 
 - [ ] **Step 2: Run tests to verify the new ones fail**
 
 Run: `bash tests/run.sh`
-Expected: FAIL lines for `test_json_escape`, `test_fetch_issues_passthrough`, `test_fetch_issues_gh_fails`, `test_fetch_issues_timeout`.
+Expected: FAIL lines for `test_json_escape`, `test_fetch_issues_passthrough` and `test_with_timeout_fallback_passes_output`. The tests expecting empty output pass vacuously while the functions are missing; that is expected.
 
 - [ ] **Step 3: Append to `hooks/lib.sh`**
 
@@ -470,15 +486,28 @@ ssf_json_escape() {
     | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }'
 }
 
-# Run "$@" with a time limit in seconds if `timeout` exists (not on macOS).
+# Run "$@" with a time limit in seconds. Uses `timeout` where it exists;
+# otherwise (stock macOS) runs the command in the background and kills it
+# after the limit. Returns 124 on timeout. SSF_FORCE_FALLBACK=1 forces the
+# fallback (tests).
 ssf_with_timeout() {
-  local secs="$1"
+  local secs="$1" pid ticks=0
   shift
-  if command -v timeout >/dev/null 2>&1; then
+  if [ -z "${SSF_FORCE_FALLBACK:-}" ] && command -v timeout >/dev/null 2>&1; then
     timeout "$secs" "$@"
-  else
-    "$@"
+    return
   fi
+  "$@" &
+  pid=$!
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$ticks" -ge $((secs * 5)) ]; then
+      kill "$pid" 2>/dev/null
+      return 124
+    fi
+    sleep 0.2
+    ticks=$((ticks + 1))
+  done
+  wait "$pid"
 }
 
 # Print open issues assigned to the user with label blocks-someone, oldest
@@ -502,7 +531,7 @@ ssf_fetch_issues() {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bash tests/run.sh`
-Expected: `17 passed, 0 failed`.
+Expected: `19 passed, 0 failed`.
 
 - [ ] **Step 5: Commit**
 
@@ -604,7 +633,7 @@ ssf_banner() {
   fi
   if [ -n "$goals" ]; then
     printf '%s\n' "$goals" | awk -F '\t' -v today="$today" '
-      $1 == "active" { act = act (act != "" ? " · " : "") $2 }
+      $1 == "active" { act = act (act != "" ? ", " : "") $2 }
       $1 == "waiting" {
         w = $2
         if ($4 != "" && $4 <= today) w = w " (follow-up due)"
@@ -635,7 +664,7 @@ ssf_cleanup_old() {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bash tests/run.sh`
-Expected: `23 passed, 0 failed`.
+Expected: `25 passed, 0 failed`.
 
 - [ ] **Step 5: Commit**
 
@@ -710,7 +739,6 @@ test_ss_gh_fails_still_shows_goals() {
   assert_contains "goals shown" "$(run_hook session-start)" "🎯 Active: IDoc import fixed"
 }
 test_ss_gh_hangs_still_shows_goals() {
-  command -v timeout >/dev/null 2>&1 || return 0
   sample_goals
   GH_STUB_SLEEP=3
   SSF_GH_TIMEOUT=1
@@ -780,11 +808,12 @@ exit 0
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bash tests/run.sh`
-Expected: `37 passed, 0 failed` (on systems without `timeout`, the timeout tests return early and the total is lower; what matters is `0 failed`). The `gh hangs` test takes about 3 seconds because the stub's `sleep` keeps the pipe open after `timeout` fires.
+Expected: `39 passed, 0 failed`.
 
 - [ ] **Step 5: Commit**
 
 ```bash
+chmod +x hooks/session-start.sh
 git add hooks/session-start.sh tests/test_session_start.sh
 git update-index --chmod=+x hooks/session-start.sh
 git commit -m "feat: SessionStart hook with daily focus banner"
@@ -830,6 +859,11 @@ test_ups_nudges_once() {
   assert_contains "summary included" "$out" 'Top active goal: "IDoc import fixed"'
   assert_eq "second prompt silent" "$(run_hook user-prompt-submit)" ""
 }
+test_ups_empty_summary() {
+  prepare_state example/other
+  : > "$(STATE)/summary-2026-11-25"
+  assert_eq "silent without anything to point to" "$(run_hook user-prompt-submit)" ""
+}
 test_ups_disabled() {
   prepare_state example/other
   export FOCUS_DISABLE=1
@@ -867,7 +901,10 @@ ssf_user_prompt_submit() {
   [ -f "$fine" ] || return 0
   repo="$(ssf_current_repo)"
   [ -n "$repo" ] || return 0
-  tr -d '\r' < "$fine" | grep -qixF -- "$repo" && return 0
+  # Lowercase instead of grep -i: grep -iF crashes in Git Bash.
+  tr -d '\r' < "$fine" | tr '[:upper:]' '[:lower:]' | grep -qxF -- "$repo" && return 0
+  # Nothing to point to (e.g. only Waiting goals): stay silent.
+  [ -s "$state/summary-$today" ] || return 0
 
   marker="$state/nudge-$today-${repo//\//_}"
   mkdir "$marker" 2>/dev/null || return 0
@@ -884,11 +921,12 @@ exit 0
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `bash tests/run.sh`
-Expected: `0 failed` in the summary line (about 40 passed).
+Expected: `48 passed, 0 failed`. Afterwards, check that no `grep.exe.stackdump` file was created anywhere in the repo (`git status --short` shows nothing untracked).
 
 - [ ] **Step 5: Commit**
 
 ```bash
+chmod +x hooks/user-prompt-submit.sh
 git add hooks/user-prompt-submit.sh tests/test_user_prompt_submit.sh
 git update-index --chmod=+x hooks/user-prompt-submit.sh
 git commit -m "feat: UserPromptSubmit hook with once-per-repo-per-day nudge"
@@ -1133,7 +1171,7 @@ git switch -c feat/add-stop-starting-start-finishing
     }
 ```
 
-- [ ] **Step 3: Add the plugin to the README's Available skills section**, following the format of the existing entries there (read the section first and copy its structure).
+- [ ] **Step 3: Add the plugin to the README's Available skills section**, following the format of the existing entries there (read the section first and copy its structure). The hf-skills CI check (`.github/workflows/pr-skill-checks.yml`) requires the README entry to contain both the plugin name `stop-starting-start-finishing` and the repository URL `https://github.com/Hochfrequenz/stop-starting-start-finishing`; read that workflow before writing the entry.
 
 - [ ] **Step 4: Validate JSON**
 
