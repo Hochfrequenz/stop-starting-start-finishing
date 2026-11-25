@@ -103,3 +103,38 @@ test_with_timeout_fallback_passes_output() {
   assert_eq "fast command output kept" "$(ssf_with_timeout 2 printf 'ok')" "ok"
   unset SSF_FORCE_FALLBACK
 }
+
+ISSUES_FIXTURE="$(printf 'Example/A\talice\t12 days ago\tIDoc import\thttps://github.com/example/a/issues/1\nexample/b\tbob\t3 days ago\tBP-Mapping\thttps://github.com/example/b/issues/2')"
+GOALS_FIXTURE="$(printf 'active\tIDoc import fixed\texample/work-repo,example/second\t\nwaiting\tEDM skill released\texample/other\t2026-11-25\nwaiting\tLater thing\texample/later\t2026-12-01')"
+
+test_write_fine() {
+  ssf_write_fine "$TMP/fine" "$ISSUES_FIXTURE" "$GOALS_FIXTURE"
+  assert_eq "fine list" "$(cat "$TMP/fine")" \
+    "$(printf 'example/a\nexample/b\nexample/later\nexample/other\nexample/second\nexample/work-repo')"
+}
+test_write_summary() {
+  ssf_write_summary "$TMP/summary" "$ISSUES_FIXTURE" "$GOALS_FIXTURE"
+  assert_eq "summary" "$(cat "$TMP/summary")" \
+    "$(printf 'Oldest open commitment: "IDoc import" requested by alice (12 days ago) in Example/A, https://github.com/example/a/issues/1\nTop active goal: "IDoc import fixed"')"
+}
+test_banner_full() {
+  assert_eq "banner" "$(ssf_banner "$ISSUES_FIXTURE" "$GOALS_FIXTURE" 2026-11-25)" \
+    "$(printf '⏳ Waiting on you: "IDoc import" (alice, 12 days ago), "BP-Mapping" (bob, 3 days ago)\n🎯 Active: IDoc import fixed · Waiting: EDM skill released (follow-up due), Later thing')"
+}
+test_banner_more_than_three_issues() {
+  local many
+  many="$(printf 'o/a\tu\t1 day ago\tT1\turl\no/b\tu\t1 day ago\tT2\turl\no/c\tu\t1 day ago\tT3\turl\no/d\tu\t1 day ago\tT4\turl\no/e\tu\t1 day ago\tT5\turl')"
+  assert_contains "+N more" "$(ssf_banner "$many" "" 2026-11-25)" ', +2 more'
+}
+test_banner_no_active_goal() {
+  assert_eq "no active" "$(ssf_banner "" "$(printf 'waiting\tW\to/r\t2026-12-01')" 2026-11-25)" \
+    "🎯 Active: none · Waiting: W"
+}
+test_cleanup_old() {
+  local s="$TMP/state"
+  mkdir -p "$s/banner-2026-11-20" "$s/banner-2026-11-25"
+  : > "$s/fine-2026-11-20"
+  : > "$s/fine-2026-11-25"
+  ssf_cleanup_old "$s" 2026-11-25
+  assert_eq "only today's files remain" "$(ls "$s" | tr '\n' ' ')" "banner-2026-11-25 fine-2026-11-25 "
+}

@@ -113,3 +113,68 @@ ssf_fetch_issues() {
   [ -n "$out" ] && printf '%s\n' "$out"
   return 0
 }
+
+# Write the day's "fine" repos (no nudge there): repos of all goals and of
+# all issues, lowercase, one per line, sorted, unique.
+# Args: <out file> <issues> <goals>
+ssf_write_fine() {
+  local out="$1" issues="$2" goals="$3"
+  {
+    [ -n "$goals" ] && printf '%s\n' "$goals" | cut -f3 | tr ',' '\n'
+    [ -n "$issues" ] && printf '%s\n' "$issues" | cut -f1 | tr '[:upper:]' '[:lower:]'
+  } | grep -v '^$' | LC_ALL=C sort -u > "$out"
+}
+
+# Write the text the nudge shows Claude: the oldest issue and the top
+# active goal. Args: <out file> <issues> <goals>
+ssf_write_summary() {
+  local out="$1" issues="$2" goals="$3" top_goal
+  top_goal="$(printf '%s\n' "$goals" | awk -F '\t' '$1 == "active" { print $2; exit }')"
+  {
+    if [ -n "$issues" ]; then
+      printf '%s\n' "$issues" | head -n 1 | awk -F '\t' \
+        '{ printf "Oldest open commitment: \"%s\" requested by %s (%s) in %s, %s\n", $4, $2, $3, $1, $5 }'
+    fi
+    if [ -n "$top_goal" ]; then
+      printf 'Top active goal: "%s"\n' "$top_goal"
+    fi
+  } > "$out"
+}
+
+# Print the banner (at most 2 lines; a line is left out when it has nothing
+# to show). Args: <issues> <goals> <today>
+ssf_banner() {
+  local issues="$1" goals="$2" today="$3"
+  if [ -n "$issues" ]; then
+    printf '%s\n' "$issues" | awk -F '\t' '
+      NR <= 3 { line = line (NR > 1 ? ", " : "") "\"" $4 "\" (" $2 ", " $3 ")" }
+      END { if (NR > 3) line = line ", +" (NR - 3) " more"; print "⏳ Waiting on you: " line }'
+  fi
+  if [ -n "$goals" ]; then
+    printf '%s\n' "$goals" | awk -F '\t' -v today="$today" '
+      $1 == "active" { act = act (act != "" ? ", " : "") $2 }
+      $1 == "waiting" {
+        w = $2
+        if ($4 != "" && $4 <= today) w = w " (follow-up due)"
+        wait = wait (wait != "" ? ", " : "") w
+      }
+      END {
+        line = "🎯 Active: " (act != "" ? act : "none")
+        if (wait != "") line = line " · Waiting: " wait
+        print line
+      }'
+  fi
+}
+
+# Delete markers and cache files that are not from today.
+# Args: <state dir> <today>
+ssf_cleanup_old() {
+  local state="$1" today="$2" f
+  for f in "$state"/*; do
+    [ -e "$f" ] || continue
+    case "$f" in
+      *"$today"*) ;;
+      *) rm -rf "$f" ;;
+    esac
+  done
+}
