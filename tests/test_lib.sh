@@ -63,3 +63,43 @@ test_read_goals_crlf_and_bom() {
   printf '\357\273\277wip-limit: 2\r\n\r\n## Active\r\n### A goal\r\n- repos: O/R1\r\n' > "$HOME/.claude/focus/goals.md"
   assert_eq "crlf + bom" "$(ssf_read_goals)" "$(printf 'active\tA goal\to/r1\t')"
 }
+
+test_json_escape() {
+  local input expected
+  input="$(printf 'a "b" \\c\tx\r\nzweite Zeile ä')"
+  expected='a \"b\" \\c x\nzweite Zeile ä'
+  assert_eq "json escape" "$(printf '%s' "$input" | ssf_json_escape)" "$expected"
+}
+test_fetch_issues_passthrough() {
+  GH_STUB_OUTPUT="$(printf 'example/a\talice\t12 days ago\tIDoc import\thttps://github.com/example/a/issues/1\n')"
+  assert_eq "stub output" "$(ssf_fetch_issues)" \
+    "$(printf 'example/a\talice\t12 days ago\tIDoc import\thttps://github.com/example/a/issues/1')"
+}
+test_fetch_issues_without_gh() {
+  SSF_GH="$TMP/does-not-exist"
+  assert_eq "no gh" "$(ssf_fetch_issues)" ""
+}
+test_fetch_issues_gh_fails() {
+  GH_STUB_OUTPUT="partial"
+  GH_STUB_EXIT=1
+  assert_eq "gh error" "$(ssf_fetch_issues)" ""
+}
+test_fetch_issues_timeout() {
+  GH_STUB_OUTPUT="late"
+  GH_STUB_SLEEP=3
+  SSF_GH_TIMEOUT=1
+  assert_eq "gh too slow" "$(ssf_fetch_issues)" ""
+}
+test_fetch_issues_timeout_fallback() {
+  export SSF_FORCE_FALLBACK=1
+  GH_STUB_OUTPUT="late"
+  GH_STUB_SLEEP=3
+  SSF_GH_TIMEOUT=1
+  assert_eq "gh too slow without timeout(1)" "$(ssf_fetch_issues)" ""
+  unset SSF_FORCE_FALLBACK
+}
+test_with_timeout_fallback_passes_output() {
+  export SSF_FORCE_FALLBACK=1
+  assert_eq "fast command output kept" "$(ssf_with_timeout 2 printf 'ok')" "ok"
+  unset SSF_FORCE_FALLBACK
+}
