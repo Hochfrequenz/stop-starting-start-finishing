@@ -71,3 +71,11 @@ test_ss_cleans_old_state() {
   run_hook session-start > /dev/null
   assert_eq "old marker gone" "$([ -e "$(STATE)/banner-2026-11-20" ] && echo still-there)" ""
 }
+test_ss_cache_write_failure_is_silent_and_retries() {
+  sample_goals
+  mkdir -p "$(STATE)/fine-2026-11-25"
+  local out
+  out="$(run_hook session-start 2>&1)"
+  assert_eq "no output, no stderr" "$out" ""
+  assert_eq "claim released" "$([ -e "$(STATE)/banner-2026-11-25" ] && echo kept)" ""
+}
