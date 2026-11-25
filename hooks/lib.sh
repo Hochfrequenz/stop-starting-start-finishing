@@ -43,13 +43,28 @@ ssf_current_repo() {
 # Print the goals from goals.md, one per line:
 #   section<TAB>title<TAB>repos<TAB>follow-up
 # section is "active" or "waiting"; other sections are ignored. repos is
-# lowercase, comma-separated, without spaces. Tolerates CRLF and a UTF-8 BOM.
+# lowercase, comma-separated, without spaces. Tolerates CRLF, a UTF-8 BOM and
+# common hand edits: "##Active", "## Waiting (parked)", "* Repos:", and
+# remote URLs instead of owner/repo in the repos list.
 ssf_read_goals() {
   local f bom
   f="$(ssf_dir)/goals.md"
   [ -f "$f" ] || return 0
   bom="$(printf '\357\273\277')"
   LC_ALL=C awk -v bom="$bom" '
+    # Same rules as ssf_normalize_remote, for entries that look like URLs.
+    function norm(e,   n, parts) {
+      if (e !~ /:\/\/|@/) return e
+      sub(/\/$/, "", e); sub(/\.git$/, "", e)
+      sub(/^[^:]*:\/\//, "", e); sub(/^[^@]*@/, "", e); sub(/:/, "/", e)
+      n = split(e, parts, "/")
+      return (n >= 2) ? parts[n - 1] "/" parts[n] : ""
+    }
+    function value(line) {
+      line = substr(line, index(line, ":") + 1)
+      gsub(/[ \t]/, "", line)
+      return line
+    }
     function flush() {
       if (title != "" && (sec == "active" || sec == "waiting"))
         printf "%s\t%s\t%s\t%s\n", sec, title, repos, fu
@@ -57,10 +72,24 @@ ssf_read_goals() {
     }
     { sub(/\r$/, "") }
     NR == 1 && index($0, bom) == 1 { $0 = substr($0, 4) }
-    /^## / { flush(); sec = tolower($0); sub(/^## */, "", sec); sub(/ *$/, "", sec); next }
-    /^### / { flush(); title = $0; sub(/^### */, "", title); sub(/ *$/, "", title); next }
-    title != "" && /^- repos:/ { repos = substr($0, index($0, ":") + 1); gsub(/[ \t]/, "", repos); repos = tolower(repos); next }
-    title != "" && /^- follow-up:/ { fu = substr($0, index($0, ":") + 1); gsub(/[ \t]/, "", fu); next }
+    { low = tolower($0) }
+    /^##([^#]|$)/ {
+      flush()
+      s = low; sub(/^## */, "", s)
+      sec = (index(s, "active") == 1) ? "active" : (index(s, "waiting") == 1) ? "waiting" : ""
+      next
+    }
+    /^###/ { flush(); title = $0; sub(/^### */, "", title); sub(/ *$/, "", title); next }
+    title != "" && low ~ /^[-*] *repos:/ {
+      n = split(tolower(value($0)), list, ",")
+      repos = ""
+      for (i = 1; i <= n; i++) {
+        e = norm(list[i])
+        if (e != "") repos = repos (repos != "" ? "," : "") e
+      }
+      next
+    }
+    title != "" && low ~ /^[-*] *follow-up:/ { fu = value($0); next }
     END { flush() }
   ' "$f"
 }
@@ -78,23 +107,31 @@ ssf_json_escape() {
 # after the limit. Returns 124 on timeout. SSF_FORCE_FALLBACK=1 forces the
 # fallback (tests).
 ssf_with_timeout() {
-  local secs="$1" pid ticks=0
+  local secs="$1" pid ticks=0 out rc
   shift
   if [ -z "${SSF_FORCE_FALLBACK:-}" ] && command -v timeout >/dev/null 2>&1; then
     timeout "$secs" "$@"
     return
   fi
-  "$@" &
+  # Output goes to a temp file, not our stdout: a child process that
+  # survives the kill would otherwise keep a caller's $(...) pipe open.
+  out="$(mktemp 2>/dev/null)" || return 1
+  "$@" > "$out" &
   pid=$!
   while kill -0 "$pid" 2>/dev/null; do
     if [ "$ticks" -ge $((secs * 5)) ]; then
       kill "$pid" 2>/dev/null
+      rm -f "$out"
       return 124
     fi
     sleep 0.2
     ticks=$((ticks + 1))
   done
   wait "$pid"
+  rc=$?
+  cat "$out"
+  rm -f "$out"
+  return "$rc"
 }
 
 # Print open issues assigned to the user with label blocks-someone, oldest

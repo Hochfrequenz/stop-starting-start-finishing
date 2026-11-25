@@ -81,7 +81,7 @@ Steps:
    Both are refreshed once per day, when the banner runs. Goals added later that day only take effect the next day, unless the skill rewrites the fine file after editing `goals.md` (see §6).
 7. Print JSON `{"systemMessage": "<banner>"}` so the user sees it immediately. Escape `\`, `"` and newlines with `sed`.
 
-Banner (at most 2 lines; each line is omitted when empty; titles are cut to 40 characters with "…"):
+Banner (at most 2 lines; each line is omitted when empty; issue titles are cut to 40 characters by `gh`, goal titles are limited to 40 characters by the skill when it writes them):
 
 ```
 ⏳ Waiting on you: "IDoc import" (alice, 12 days ago), "BP-Mapping" (bob, 3 days ago)
@@ -92,7 +92,7 @@ Banner (at most 2 lines; each line is omitted when empty; titles are cut to 40 c
 - Waiting goals whose `follow-up` date is today or earlier are marked "follow-up due".
 - Old marker and cache files (not today's) are deleted.
 
-Note: hook stdout and `systemMessage` are capped at 10,000 characters; the banner is truncated well below that.
+Note: hook stdout and `systemMessage` are capped at 10,000 characters. The banner lists at most 3 issues and the goals (bounded by `wip-limit` plus Waiting goals), so it stays far below that.
 
 ## 4. Hook: UserPromptSubmit (daily nudge)
 

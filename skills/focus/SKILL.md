@@ -1,6 +1,6 @@
 ---
 name: focus
-description: Manage the user's focus goals in ~/.claude/focus/goals.md (stop starting, start finishing). Use when the user runs /focus, asks what they are working on or what is waiting on them, wants to add, park, unpark or finish a goal, says a goal is blocked or done, or when a stop-starting hook message asks for a nudge.
+description: Manage the user's focus goals in ~/.claude/focus/goals.md (stop starting, start finishing). Use when the user runs /focus, asks what they are working on or what is waiting on them, wants to add, park, unpark or finish a goal, or says a goal is blocked or done.
 ---
 
 # Focus: stop starting, start finishing
@@ -62,7 +62,7 @@ Rules:
 
 ## The nudge
 
-When a `stop-starting:` hook message is in your context, or you notice the user starting new work in a repo that is not in their goals while something is waiting on them:
+Only when a `stop-starting:` hook message is in your context (the hook already limits this to once per repo per day):
 
 - Start your reply with exactly **one** short line naming the most important open commitment (oldest `blocks-someone` issue first, otherwise the top Active goal). Example: `⏳ Reminder: "IDoc import" has been waiting on you for 12 days (alice).`
 - Then do what the user asked, normally. Do not ask questions about it, do not repeat it later in the session.

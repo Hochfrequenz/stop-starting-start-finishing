@@ -138,3 +138,24 @@ test_cleanup_old() {
   ssf_cleanup_old "$s" 2026-11-25
   assert_eq "only today's files remain" "$(ls "$s" | tr '\n' ' ')" "banner-2026-11-25 fine-2026-11-25 "
 }
+
+test_read_goals_lenient_hand_edits() {
+  goals <<'EOF2'
+##Active
+### Hand edited
+* Repos: https://github.com/Foo/Bar.git, git@github.com:Baz/Qux.git, plain/one
+
+## Waiting (parked)
+### Parked
+-  Follow-up: 2026-11-30
+EOF2
+  assert_eq "lenient parsing" "$(ssf_read_goals)" \
+    "$(printf 'active\tHand edited\tfoo/bar,baz/qux,plain/one\t\nwaiting\tParked\t\t2026-11-30')"
+}
+test_with_timeout_fallback_kills_promptly() {
+  export SSF_FORCE_FALLBACK=1
+  local start=$SECONDS
+  local out; out="$(ssf_with_timeout 1 bash -c 'sleep 5; echo late')"
+  assert_eq "fallback returns within ~2s" "$(( SECONDS - start <= 2 ))" "1"
+  unset SSF_FORCE_FALLBACK
+}

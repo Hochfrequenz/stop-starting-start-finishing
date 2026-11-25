@@ -32,6 +32,18 @@ Requirements:
 - `/stop-starting-start-finishing:focus` (or just ask: "what am I working on?", "add a goal", "park the IDoc goal until Friday, waiting for alice").
 - Your goals live in `~/.claude/focus/goals.md`. You can edit it by hand; keep the format the skill uses.
 - Set `FOCUS_DISABLE=1` for automated sessions (`/loop`, headless runs) to switch the hooks off.
+- The short form `/focus` does not work; plugin skills are always namespaced.
+
+### Fewer permission prompts
+
+`focus` reads and edits a file outside your project and calls `gh`, so Claude Code asks for permission each time. To allow these once, add to `permissions.allow` in `~/.claude/settings.json`:
+
+```json
+"Read(~/.claude/focus/**)",
+"Edit(~/.claude/focus/**)",
+"Write(~/.claude/focus/**)",
+"Bash(gh search issues:*)"
+```
 
 ## Development
 
