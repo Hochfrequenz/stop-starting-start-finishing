@@ -1,0 +1,11 @@
+{
+  "name": "stop-starting-start-finishing",
+  "description": "Stop starting, start finishing: a daily banner with the work people are waiting on you for, and a gentle nudge when you start something new elsewhere.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Hochfrequenz"
+  },
+  "homepage": "https://github.com/Hochfrequenz/stop-starting-start-finishing",
+  "repository": "https://github.com/Hochfrequenz/stop-starting-start-finishing",
+  "keywords": ["focus", "wip-limit", "kanban", "productivity"]
+}

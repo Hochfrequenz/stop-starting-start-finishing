@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Fake gh for tests. Behaviour is controlled by environment variables:
+#   GH_STUB_SLEEP  seconds to sleep before answering (default 0)
+#   GH_STUB_OUTPUT text printed on stdout (default empty)
+#   GH_STUB_EXIT   exit code (default 0)
+if [ "${GH_STUB_SLEEP:-0}" != "0" ]; then sleep "$GH_STUB_SLEEP"; fi
+printf '%s' "${GH_STUB_OUTPUT:-}"
+exit "${GH_STUB_EXIT:-0}"
